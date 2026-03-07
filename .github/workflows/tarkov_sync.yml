@@ -5,38 +5,35 @@ on:
     # Trigger every 10 minutes
     - cron: '*/10 * * * *'
   
-  # Allow manual execution from the GitHub Actions UI
+  # Allow manual execution from the Actions tab
   workflow_dispatch:
 
 jobs:
   build-and-sync:
     runs-on: ubuntu-latest
     
-    # Set a strict timeout to prevent accidental credit consumption
+    # Safety timeout to prevent infinite loops on alpha software
     timeout-minutes: 5 
 
     steps:
-      # 1. Access the repository code
+      # 1. Pull the latest code from your repository
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # 2. Setup uv with persistent caching
-      # This caches your dependencies (supabase, dotenv) in GitHub's internal network
+      # 2. Setup uv with caching enabled for faster subsequent runs
       - name: Install uv
         uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
-          # Note: If you have a pyproject.toml or uv.lock, 
-          # uv will use them to speed up resolution significantly.
 
-      # 3. Use the pre-installed Python version
-      # ubuntu-latest usually comes with Python 3.12 pre-loaded.
-      # By pinning instead of installing, we save ~10 seconds.
-      - name: Pin Python Version
-        run: uv python pin 3.12
+      # 3. Explicitly install Python 3.14
+      # Since it's not pre-installed, uv will download the binary here.
+      # This resolves the "incompatible with >=3.14" error.
+      - name: Install Python 3.14
+        run: uv python install 3.14
 
       # 4. Execute the Sync Engine
-      # '--no-dev' ensures we don't waste time installing test/dev libraries.
+      # uv run will now automatically detect and use the 3.14 version we just installed.
       - name: Execute Cloud Sync Engine
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
