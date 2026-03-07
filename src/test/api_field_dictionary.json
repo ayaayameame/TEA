@@ -1,0 +1,214 @@
+[
+    {
+        "field": "id",
+        "description": "无描述"
+    },
+    {
+        "field": "name",
+        "description": "无描述"
+    },
+    {
+        "field": "normalizedName",
+        "description": "无描述"
+    },
+    {
+        "field": "shortName",
+        "description": "无描述"
+    },
+    {
+        "field": "description",
+        "description": "无描述"
+    },
+    {
+        "field": "basePrice",
+        "description": "无描述"
+    },
+    {
+        "field": "updated",
+        "description": "无描述"
+    },
+    {
+        "field": "width",
+        "description": "无描述"
+    },
+    {
+        "field": "height",
+        "description": "无描述"
+    },
+    {
+        "field": "backgroundColor",
+        "description": "无描述"
+    },
+    {
+        "field": "iconLink",
+        "description": "无描述"
+    },
+    {
+        "field": "gridImageLink",
+        "description": "无描述"
+    },
+    {
+        "field": "baseImageLink",
+        "description": "无描述"
+    },
+    {
+        "field": "inspectImageLink",
+        "description": "无描述"
+    },
+    {
+        "field": "image512pxLink",
+        "description": "无描述"
+    },
+    {
+        "field": "image8xLink",
+        "description": "无描述"
+    },
+    {
+        "field": "wikiLink",
+        "description": "无描述"
+    },
+    {
+        "field": "types",
+        "description": "无描述"
+    },
+    {
+        "field": "avg24hPrice",
+        "description": "无描述"
+    },
+    {
+        "field": "properties",
+        "description": "无描述"
+    },
+    {
+        "field": "conflictingItems",
+        "description": "无描述"
+    },
+    {
+        "field": "conflictingSlotIds",
+        "description": "无描述"
+    },
+    {
+        "field": "accuracyModifier",
+        "description": "无描述"
+    },
+    {
+        "field": "recoilModifier",
+        "description": "无描述"
+    },
+    {
+        "field": "ergonomicsModifier",
+        "description": "无描述"
+    },
+    {
+        "field": "hasGrid",
+        "description": "无描述"
+    },
+    {
+        "field": "blocksHeadphones",
+        "description": "无描述"
+    },
+    {
+        "field": "link",
+        "description": "无描述"
+    },
+    {
+        "field": "lastLowPrice",
+        "description": "无描述"
+    },
+    {
+        "field": "changeLast48h",
+        "description": "无描述"
+    },
+    {
+        "field": "changeLast48hPercent",
+        "description": "无描述"
+    },
+    {
+        "field": "low24hPrice",
+        "description": "无描述"
+    },
+    {
+        "field": "high24hPrice",
+        "description": "无描述"
+    },
+    {
+        "field": "lastOfferCount",
+        "description": "无描述"
+    },
+    {
+        "field": "sellFor",
+        "description": "无描述"
+    },
+    {
+        "field": "buyFor",
+        "description": "无描述"
+    },
+    {
+        "field": "containsItems",
+        "description": "无描述"
+    },
+    {
+        "field": "category",
+        "description": "无描述"
+    },
+    {
+        "field": "categories",
+        "description": "无描述"
+    },
+    {
+        "field": "bsgCategoryId",
+        "description": "无描述"
+    },
+    {
+        "field": "handbookCategories",
+        "description": "无描述"
+    },
+    {
+        "field": "weight",
+        "description": "无描述"
+    },
+    {
+        "field": "velocity",
+        "description": "无描述"
+    },
+    {
+        "field": "loudness",
+        "description": "无描述"
+    },
+    {
+        "field": "minLevelForFlea",
+        "description": "无描述"
+    },
+    {
+        "field": "usedInTasks",
+        "description": "无描述"
+    },
+    {
+        "field": "receivedFromTasks",
+        "description": "无描述"
+    },
+    {
+        "field": "bartersFor",
+        "description": "无描述"
+    },
+    {
+        "field": "bartersUsing",
+        "description": "无描述"
+    },
+    {
+        "field": "craftsFor",
+        "description": "无描述"
+    },
+    {
+        "field": "craftsUsing",
+        "description": "无描述"
+    },
+    {
+        "field": "historicalPrices",
+        "description": "historicalPrices is only available via the item and items queries."
+    },
+    {
+        "field": "fleaMarketFee",
+        "description": "无描述"
+    }
+]

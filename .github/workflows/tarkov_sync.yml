@@ -1,0 +1,38 @@
+name: Tarkov Market Dual-Mode Sync
+
+on:
+  schedule:
+    # Runs every 10 minutes (Cron format)
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+    # Allows you to manually trigger the sync from GitHub UI
+
+jobs:
+  build-and-sync:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v4
+
+      - name: Set up Python environment
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install uv (Fast Python package manager)
+        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+
+      - name: Install project dependencies
+        run: |
+          uv venv
+          uv pip install supabase python-dotenv
+
+      - name: Execute Cloud Sync Engine
+        env:
+          # Injects your secret keys into the environment safely
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: |
+          source .venv/bin/activate
+          python src/cloud_sync.py
