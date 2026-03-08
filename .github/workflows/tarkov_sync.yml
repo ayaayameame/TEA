@@ -1,39 +1,45 @@
 name: Tarkov Market Dual-Mode Sync
 
 on:
-  schedule:
-    # Trigger every 5 minutes
-    - cron: '*/5 * * * *'
+  # ----------------------------------------------------------------------------
+  # EXTERNAL TRIGGER (WEBHOOK)
+  # This listens for a POST request from services like Cron-job.org.
+  # The payload must contain {"event_type": "cron_trigger"}
+  # ----------------------------------------------------------------------------
+  repository_dispatch:
+    types: [cron_trigger]
   
-  # Allow manual execution from the Actions tab
+  # ----------------------------------------------------------------------------
+  # MANUAL TRIGGER
+  # Allows you to manually click "Run workflow" from the GitHub Actions tab.
+  # ----------------------------------------------------------------------------
   workflow_dispatch:
 
 jobs:
   build-and-sync:
     runs-on: ubuntu-latest
     
-    # Safety timeout to prevent infinite loops on alpha software
+    # Safety timeout to prevent runaway processes and save runner minutes
     timeout-minutes: 5 
 
     steps:
-      # 1. Pull the latest code from your repository
+      # 1. Pull the latest code from the main branch
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # 2. Setup uv with caching enabled for faster subsequent runs
+      # 2. Setup the 'uv' package manager with dependency caching enabled
       - name: Install uv
         uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
 
       # 3. Explicitly install Python 3.14
-      # Since it's not pre-installed, uv will download the binary here.
-      # This resolves the "incompatible with >=3.14" error.
+      # This downloads the specific binary required by the pyproject.toml constraint.
       - name: Install Python 3.14
         run: uv python install 3.14
 
-      # 4. Execute the Sync Engine
-      # uv run will now automatically detect and use the 3.14 version we just installed.
+      # 4. Execute the Python sync script
+      # Runs the logic to fetch Tarkov data and push/settle it in Supabase.
       - name: Execute Cloud Sync Engine
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
