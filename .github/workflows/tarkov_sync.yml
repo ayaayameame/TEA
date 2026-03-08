@@ -2,7 +2,7 @@ name: Tarkov Market Dual-Mode Sync
 
 on:
   schedule:
-    # Trigger every 10 minutes
+    # Trigger every 3 minutes
     - cron: '*/3 * * * *'
   
   # Allow manual execution from the Actions tab
