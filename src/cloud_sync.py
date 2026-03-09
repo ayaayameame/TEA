@@ -166,19 +166,29 @@ def run_settlement():
 # ==============================================================================
 # 6. Main Orchestration
 # ==============================================================================
+from datetime import datetime
+
 if __name__ == "__main__":
     try:
-        # Step 1: PvP Sync
+        # Step 1: PvP Sync (High-frequency raw data ingestion)
         pvp_data = fetch_tarkov_data(game_mode="regular")
         id_mapping = robust_mapping_sync(pvp_data)
         push_market_data(pvp_data, id_mapping, is_pve=False)
         
-        # Step 2: PvE Sync
+        # Step 2: PvE Sync (High-frequency raw data ingestion)
         pve_data = fetch_tarkov_data(game_mode="pve")
         push_market_data(pve_data, id_mapping, is_pve=True)
         
-        # Step 3: Global Settlement & Optimization
-        run_settlement()
+        # Step 3: Global Settlement & Optimization (Hourly rate-limiting)
+        current_minute = datetime.now().minute
+        
+        # Trigger settlement only if the current minute is less than 5 (e.g., xx:00 to xx:04).
+        # Combined with your 5-minute cron schedule, this ensures it runs only once per hour.
+        if current_minute < 5:
+            print(f"⏰ Top of the hour (Minute {current_minute}): Executing heavy database settlement and cleanup...")
+            run_settlement()
+        else:
+            print(f"⏩ Skipping settlement (Minute {current_minute}): Conserving Supabase Disk IO...")
         
         print("🎉 Entire sync sequence finished successfully!")
     except Exception as e:
