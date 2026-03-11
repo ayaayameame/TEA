@@ -19,6 +19,13 @@ jobs:
   build-and-sync:
     runs-on: ubuntu-latest
     
+    # ----------------------------------------------------------------------------
+    # ENVIRONMENT VARIABLES
+    # Force actions to use Node.js 24 to suppress the Node 20 deprecation warning.
+    # ----------------------------------------------------------------------------
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    
     # Safety timeout to prevent runaway processes and save runner minutes
     timeout-minutes: 5 
 
