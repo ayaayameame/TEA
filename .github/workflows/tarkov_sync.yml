@@ -1,55 +1,53 @@
 name: Tarkov Market Dual-Mode Sync
 
+# ==============================================================================
+# 1. TRIGGERS
+# ==============================================================================
 on:
-  # ----------------------------------------------------------------------------
-  # EXTERNAL TRIGGER (WEBHOOK)
-  # This listens for a POST request from services like Cron-job.org.
-  # The payload must contain {"event_type": "cron_trigger"}
-  # ----------------------------------------------------------------------------
+  # Triggered by external webhooks (e.g., from Cron-job.org)
   repository_dispatch:
     types: [cron_trigger]
   
-  # ----------------------------------------------------------------------------
-  # MANUAL TRIGGER
-  # Allows you to manually click "Run workflow" from the GitHub Actions tab.
-  # ----------------------------------------------------------------------------
+  # Allows manual execution from the GitHub Actions UI
   workflow_dispatch:
 
+# ==============================================================================
+# 2. GLOBAL ENVIRONMENT VARIABLES
+# ==============================================================================
+# Placed at the top level so the runner reads it before downloading any actions.
+# This strictly forces actions/checkout and setup-uv to run on Node.js 24,
+# completely silencing the "Node.js 20 actions are deprecated" warning.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+# ==============================================================================
+# 3. JOBS CONFIGURATION
+# ==============================================================================
 jobs:
   build-and-sync:
     runs-on: ubuntu-latest
     
-    # ----------------------------------------------------------------------------
-    # ENVIRONMENT VARIABLES
-    # Force actions to use Node.js 24 to suppress the Node 20 deprecation warning.
-    # ----------------------------------------------------------------------------
-    env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-    
-    # Safety timeout to prevent runaway processes and save runner minutes
+    # Safety mechanism to prevent runaway tasks from consuming runner minutes
     timeout-minutes: 5 
 
     steps:
-      # 1. Pull the latest code from the main branch
+      # Step 1: Clone the repository codebase to the cloud runner
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # 2. Setup the 'uv' package manager with dependency caching enabled
-      - name: Install uv
+      # Step 2: Install the 'uv' package manager with dependency caching enabled
+      - name: Setup uv Package Manager
         uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
-
-      # 3. Explicitly install Python 3.14
-      # This downloads the specific binary required by the pyproject.toml constraint.
+          
+      # Step 3: Explicitly install the exact Python version required
       - name: Install Python 3.14
         run: uv python install 3.14
-
-      # 4. Execute the Python sync script
-      # Runs the logic to fetch Tarkov data and push/settle it in Supabase.
+      
+      # Step 4: Run the main Python script securely with secrets injected
       - name: Execute Cloud Sync Engine
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-        run: |
-          uv run --no-dev src/cloud_sync.py
+        run: uv run --no-dev src/cloud_sync.py
