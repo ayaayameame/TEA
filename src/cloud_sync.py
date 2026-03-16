@@ -1,7 +1,11 @@
 import os
+import sys
 import json
 import time
+import traceback
 import urllib.request
+import urllib.error
+import http.client
 from datetime import datetime
 from dotenv import load_dotenv
 from supabase import create_client, Client
@@ -37,7 +41,7 @@ def parse_tarkov_time(iso_str):
         return 0
 
 def fetch_tarkov_data(game_mode="regular"):
-    """Fetches a full market snapshot from the Tarkov.dev GraphQL API."""
+    """Fetches a full market snapshot from the Tarkov.dev GraphQL API with retry logic."""
     mode_label = "PvE" if game_mode == "pve" else "PvP"
     print(f"⏳ Fetching raw {mode_label} data from Tarkov API...")
     
@@ -67,9 +71,28 @@ def fetch_tarkov_data(game_mode="regular"):
     
     req = urllib.request.Request(url, data=json.dumps({'query': query}).encode('utf-8'), headers=headers)
     
-    with urllib.request.urlopen(req) as response:
-        result = json.loads(response.read().decode('utf-8'))
-        return result['data']['items']
+    max_retries = 3
+    
+    # 🌟 Auto-retry and network jitter prevention mechanism
+    for attempt in range(max_retries):
+        try:
+            # Set timeout=30 to prevent hanging connections
+            with urllib.request.urlopen(req, timeout=30) as response:
+                result = json.loads(response.read().decode('utf-8'))
+                return result['data']['items']
+                
+        except http.client.IncompleteRead as e:
+            print(f"⚠️ [{mode_label} API] Network packet loss (IncompleteRead): Attempt {attempt + 1}/{max_retries}... Retrying in 2 seconds")
+            time.sleep(2)
+        except urllib.error.URLError as e:
+            print(f"⚠️ [{mode_label} API] Connection error: {e.reason} (Attempt {attempt + 1}/{max_retries})... Retrying in 2 seconds")
+            time.sleep(2)
+        except Exception as e:
+            print(f"⚠️ [{mode_label} API] Unknown network error: {e} (Attempt {attempt + 1}/{max_retries})... Retrying in 2 seconds")
+            time.sleep(2)
+            
+    # Raise a fatal error if all retries fail to block further execution
+    raise RuntimeError(f"❌ Failed to fetch Tarkov {mode_label} API after {max_retries} attempts. Please check network status.")
 
 # ==============================================================================
 # 3. Item Mapping Logic
@@ -133,13 +156,14 @@ def push_market_data(raw_items, id_map, is_pve=False):
 
     # If the API hasn't updated since our last fetch, skip the database write entirely
     if max_api_ts <= latest_db_ts:
-        print(f"⏩ [{mode_label}] 全局 API 时间未更新，跳过同步。")
+        print(f"⏩ [{mode_label}] Global API time not updated, skipping sync.")
         return
     
-    print(f"🔍 [{mode_label}] 正在获取上一轮快照进行数据去重比对...")
+    print(f"🔍 [{mode_label}] Fetching previous snapshot for deduplication...")
     last_prices = {}
     
-    # 🌟 增量去重优化：分页拉取上一轮 (latest_db_ts) 的所有数据，构建内存比对字典
+    # 🌟 Incremental deduplication: Paginate and fetch all data from the previous run
+    # (latest_db_ts) to build an in-memory comparison dictionary
     if latest_db_ts > 0:
         page_size, current_page = 1000, 0
         while True:
@@ -167,10 +191,10 @@ def push_market_data(raw_items, id_map, is_pve=False):
         p_high = int(item.get('high24hPrice') or 0)
         p_count = min(32767, int(item.get('lastOfferCount') or 0))
 
-        # 🌟 核心过滤逻辑：比对 最低价、均价、挂单数量
+        # 🌟 Core filtering logic: Compare minimum price, average price, and offer count
         if ref in last_prices:
             last_min, last_avg, last_count = last_prices[ref]
-            # 如果三个核心维度毫无波动，视为僵尸数据，直接丢弃！
+            # If the three core dimensions remain unchanged, consider it zombie data and discard it directly
             if p_min == last_min and p_avg == last_avg and p_count == last_count:
                 continue 
         
@@ -188,16 +212,16 @@ def push_market_data(raw_items, id_map, is_pve=False):
     # Batch insert into Supabase with safety chunking
     if upload_payload:
         skipped_count = len(raw_items) - len(upload_payload)
-        print(f"🚀 [{mode_label}] 发现 {len(upload_payload)} 个活跃波动资产，剔除了 {skipped_count} 个未变化僵尸数据...")
+        print(f"🚀 [{mode_label}] Found {len(upload_payload)} active assets, filtered out {skipped_count} unchanged zombie records.")
         
-        # 分块上传，每 1000 条为一组，防止 Supabase 抛出 Payload Too Large 错误
+        # Chunked upload, 1000 records per batch, to prevent Supabase 'Payload Too Large' errors
         chunk_size = 1000
         for i in range(0, len(upload_payload), chunk_size):
             supabase.table("prices_2d").insert(upload_payload[i:i+chunk_size]).execute()
             
-        print(f"✅ [{mode_label}] 精准高频快照已成功写入数据库。")
+        print(f"✅ [{mode_label}] High-frequency snapshot successfully written to the database.")
     else:
-        print(f"⏩ [{mode_label}] 所有商品价格和盘口均无变化，未消耗数据库写入配额。")
+        print(f"⏩ [{mode_label}] No price or market changes detected, no database write quota consumed.")
 
 # ==============================================================================
 # 5. Settlement Logic (The DB-Side "Brain")
@@ -250,4 +274,5 @@ if __name__ == "__main__":
         
         print("🎉 Entire sync sequence finished successfully!")
     except Exception as e:
+        # With traceback and sys imported, the actual error will no longer be masked
         print(f"❌ Critical Error in sync engine: {traceback.format_exc() if 'traceback' in sys.modules else str(e)}")
