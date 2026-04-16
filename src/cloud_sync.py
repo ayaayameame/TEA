@@ -111,8 +111,8 @@ def robust_mapping_sync(raw_items):
         } for item in raw_items if item.get('name')
     }
     
-    # Upsert items to ensure new items are added without duplicating existing ones
-    supabase.table("items").upsert(list(payload_dict.values()), on_conflict="name").execute()
+    # 🌟 修复: 使用 original_id 作为冲突判定的唯一依据
+    supabase.table("items").upsert(list(payload_dict.values()), on_conflict="original_id").execute()
     
     all_mapping_rows = []
     page_size, current_page = 1000, 0
