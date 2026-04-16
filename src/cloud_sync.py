@@ -102,13 +102,13 @@ def robust_mapping_sync(raw_items):
     """Syncs items via Upsert and fetches all mapping rows using pagination."""
     print("🛡️  Syncing item mapping (Upsert Logic)...")
     
-    # Prepare payload for the 'items' table
+# Prepare payload for the 'items' table
     payload_dict = {
-        item['name']: {
+        item['id']: {  # 🌟 修复：使用塔科夫的底层 id 作为内存去重的键
             "original_id": item['id'],
             "name": item['name'],
             "short_name": item.get('shortName', 'Unknown')
-        } for item in raw_items if item.get('name')
+        } for item in raw_items if item.get('id')
     }
     
     # 🌟 修复: 使用 original_id 作为冲突判定的唯一依据
