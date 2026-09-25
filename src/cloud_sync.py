@@ -41,58 +41,212 @@ def parse_tarkov_time(iso_str):
         return 0
 
 def fetch_tarkov_data(game_mode="regular"):
-    """Fetches a full market snapshot from the Tarkov.dev GraphQL API with retry logic."""
+    """
+    Fetch Tarkov market data from the current JSON API and normalize it
+    to the field names expected by the existing Supabase sync logic.
+    """
     mode_label = "PvE" if game_mode == "pve" else "PvP"
-    print(f"⏳ Fetching raw {mode_label} data from Tarkov API...")
-    
-    # GraphQL query: Removed redundant fields (fleaMarketFee, changeLast48hPercent)
-    # to reduce network payload size and improve speed.
-    query = """
-    {
-        items(gameMode: %s) {
-            id
-            name
-            shortName
-            updated
-            avg24hPrice
-            lastLowPrice
-            low24hPrice
-            high24hPrice
-            lastOfferCount
-        }
-    }
-    """ % game_mode
-    
-    url = 'https://api.tarkov.dev/graphql'
+    print(f"⏳ Fetching raw {mode_label} data from Tarkov JSON API...")
+
+    if game_mode not in ("regular", "pve"):
+        raise ValueError(f"Unsupported Tarkov game mode: {game_mode}")
+
+    url = f"https://json.tarkov.dev/{game_mode}/items"
     headers = {
-        'Content-Type': 'application/json', 
-        'User-Agent': 'TarkovDataSync/8.0'
+        "Accept": "application/json",
+        "User-Agent": "TarkovDataSync/9.0"
     }
-    
-    req = urllib.request.Request(url, data=json.dumps({'query': query}).encode('utf-8'), headers=headers)
-    
+
     max_retries = 3
-    
-    # 🌟 Auto-retry and network jitter prevention mechanism
+
     for attempt in range(max_retries):
         try:
-            # Set timeout=30 to prevent hanging connections
-            with urllib.request.urlopen(req, timeout=30) as response:
-                result = json.loads(response.read().decode('utf-8'))
-                return result['data']['items']
-                
-        except http.client.IncompleteRead as e:
-            print(f"⚠️ [{mode_label} API] Network packet loss (IncompleteRead): Attempt {attempt + 1}/{max_retries}... Retrying in 2 seconds")
-            time.sleep(2)
+            req = urllib.request.Request(
+                url,
+                headers=headers,
+                method="GET"
+            )
+
+            with urllib.request.urlopen(req, timeout=60) as response:
+                status_code = response.status
+                raw_body = response.read().decode("utf-8", errors="replace")
+
+            if status_code != 200:
+                raise RuntimeError(
+                    f"HTTP {status_code}: {raw_body[:1000]}"
+                )
+
+            result = json.loads(raw_body)
+
+            # Support both {"data": {...}} and direct JSON responses.
+            data = result.get("data", result) if isinstance(result, dict) else result
+
+            if isinstance(data, dict):
+                items = data.get("items", [])
+            elif isinstance(data, list):
+                items = data
+            else:
+                items = []
+
+            if not isinstance(items, list) or not items:
+                response_keys = (
+                    list(result.keys())
+                    if isinstance(result, dict)
+                    else type(result).__name__
+                )
+                raise RuntimeError(
+                    f"API returned no item list. Response structure: {response_keys}"
+                )
+
+            normalized_items = []
+
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+
+                normalized = dict(item)
+
+                item_id = (
+                    item.get("id")
+                    or item.get("_id")
+                    or item.get("itemId")
+                )
+
+                name = (
+                    item.get("name")
+                    or item.get("itemName")
+                    or item.get("baseName")
+                    or "Unknown"
+                )
+
+                short_name = (
+                    item.get("shortName")
+                    or item.get("short_name")
+                    or item.get("shortname")
+                    or name
+                )
+
+                normalized["id"] = item_id
+                normalized["name"] = name
+                normalized["shortName"] = short_name
+
+                normalized["updated"] = (
+                    item.get("updated")
+                    or item.get("lastUpdated")
+                    or item.get("updatedAt")
+                )
+
+                normalized["avg24hPrice"] = (
+                    item.get("avg24hPrice")
+                    if item.get("avg24hPrice") is not None
+                    else item.get("average24hPrice")
+                )
+
+                normalized["lastLowPrice"] = (
+                    item.get("lastLowPrice")
+                    if item.get("lastLowPrice") is not None
+                    else item.get("lastPrice")
+                )
+
+                normalized["low24hPrice"] = (
+                    item.get("low24hPrice")
+                    if item.get("low24hPrice") is not None
+                    else item.get("min24hPrice")
+                )
+
+                normalized["high24hPrice"] = (
+                    item.get("high24hPrice")
+                    if item.get("high24hPrice") is not None
+                    else item.get("max24hPrice")
+                )
+
+                normalized["lastOfferCount"] = (
+                    item.get("lastOfferCount")
+                    if item.get("lastOfferCount") is not None
+                    else item.get("offerCount")
+                )
+
+                if item_id:
+                    normalized_items.append(normalized)
+
+            if not normalized_items:
+                raise RuntimeError(
+                    "API response contained no usable items with IDs."
+                )
+
+            sample = normalized_items[0]
+
+            print(
+                f"✅ [{mode_label} API] Successfully fetched "
+                f"{len(normalized_items)} items."
+            )
+            print(
+                f"   Sample: id={sample.get('id')}, "
+                f"name={sample.get('name')}, "
+                f"avg24hPrice={sample.get('avg24hPrice')}, "
+                f"lastLowPrice={sample.get('lastLowPrice')}, "
+                f"lastOfferCount={sample.get('lastOfferCount')}"
+            )
+
+            return normalized_items
+
+        except urllib.error.HTTPError as e:
+            try:
+                error_body = e.read().decode("utf-8", errors="replace")
+            except Exception:
+                error_body = ""
+
+            print(
+                f"⚠️ [{mode_label} API] HTTP {e.code}: {e.reason} "
+                f"(Attempt {attempt + 1}/{max_retries})"
+            )
+
+            if error_body:
+                print(f"   Server response: {error_body[:1500]}")
+
+            if attempt < max_retries - 1:
+                time.sleep(2)
+
+        except http.client.IncompleteRead:
+            print(
+                f"⚠️ [{mode_label} API] Network packet loss "
+                f"(IncompleteRead): Attempt {attempt + 1}/{max_retries}..."
+            )
+
+            if attempt < max_retries - 1:
+                time.sleep(2)
+
         except urllib.error.URLError as e:
-            print(f"⚠️ [{mode_label} API] Connection error: {e.reason} (Attempt {attempt + 1}/{max_retries})... Retrying in 2 seconds")
-            time.sleep(2)
+            print(
+                f"⚠️ [{mode_label} API] Connection error: {e.reason} "
+                f"(Attempt {attempt + 1}/{max_retries})..."
+            )
+
+            if attempt < max_retries - 1:
+                time.sleep(2)
+
+        except json.JSONDecodeError as e:
+            print(
+                f"⚠️ [{mode_label} API] Invalid JSON response: {e} "
+                f"(Attempt {attempt + 1}/{max_retries})..."
+            )
+
+            if attempt < max_retries - 1:
+                time.sleep(2)
+
         except Exception as e:
-            print(f"⚠️ [{mode_label} API] Unknown network error: {e} (Attempt {attempt + 1}/{max_retries})... Retrying in 2 seconds")
-            time.sleep(2)
-            
-    # Raise a fatal error if all retries fail to block further execution
-    raise RuntimeError(f"❌ Failed to fetch Tarkov {mode_label} API after {max_retries} attempts. Please check network status.")
+            print(
+                f"⚠️ [{mode_label} API] Error: {e} "
+                f"(Attempt {attempt + 1}/{max_retries})..."
+            )
+
+            if attempt < max_retries - 1:
+                time.sleep(2)
+
+    raise RuntimeError(
+        f"❌ Failed to fetch Tarkov {mode_label} API "
+        f"after {max_retries} attempts."
+    )
 
 # ==============================================================================
 # 3. Item Mapping Logic
