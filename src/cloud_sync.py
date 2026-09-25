@@ -42,8 +42,19 @@ def parse_tarkov_time(iso_str):
 
 def fetch_tarkov_data(game_mode="regular"):
     """
-    Fetch Tarkov market data from the current JSON API and normalize it
-    to the field names expected by the existing Supabase sync logic.
+    Fetches the full item snapshot from json.tarkov.dev.
+
+    The current Tarkov JSON API returns an envelope in the form:
+        {
+            "data": {
+                "items": ...
+            },
+            "translations": [...]
+        }
+
+    For the items endpoint, "items" may be represented as an ID-keyed
+    dictionary rather than a list. This function normalizes both forms into
+    the list-of-dicts format expected by the existing database code.
     """
     mode_label = "PvE" if game_mode == "pve" else "PvP"
     print(f"⏳ Fetching raw {mode_label} data from Tarkov JSON API...")
@@ -52,9 +63,10 @@ def fetch_tarkov_data(game_mode="regular"):
         raise ValueError(f"Unsupported Tarkov game mode: {game_mode}")
 
     url = f"https://json.tarkov.dev/{game_mode}/items"
+
     headers = {
         "Accept": "application/json",
-        "User-Agent": "TarkovDataSync/9.0"
+        "User-Agent": "TarkovDataSync/10.0"
     }
 
     max_retries = 3
@@ -73,44 +85,92 @@ def fetch_tarkov_data(game_mode="regular"):
 
             if status_code != 200:
                 raise RuntimeError(
-                    f"HTTP {status_code}: {raw_body[:1000]}"
+                    f"HTTP {status_code}: {raw_body[:1500]}"
                 )
 
             result = json.loads(raw_body)
 
-            # Support both {"data": {...}} and direct JSON responses.
-            data = result.get("data", result) if isinstance(result, dict) else result
-
-            if isinstance(data, dict):
-                items = data.get("items", [])
-            elif isinstance(data, list):
-                items = data
-            else:
-                items = []
-
-            if not isinstance(items, list) or not items:
-                response_keys = (
-                    list(result.keys())
-                    if isinstance(result, dict)
-                    else type(result).__name__
-                )
+            if not isinstance(result, dict):
                 raise RuntimeError(
-                    f"API returned no item list. Response structure: {response_keys}"
+                    f"Unexpected API root type: {type(result).__name__}"
+                )
+
+            # Current JSON API envelope:
+            # {
+            #     "data": {...},
+            #     "translations": [...]
+            # }
+            data = result.get("data")
+
+            if not isinstance(data, dict):
+                raise RuntimeError(
+                    f"API 'data' is not an object: "
+                    f"{type(data).__name__}"
+                )
+
+            # Current items endpoint stores the collection under data["items"].
+            raw_items = data.get("items")
+
+            if raw_items is None:
+                # Defensive compatibility:
+                # some JSON endpoints are represented as a top-level
+                # ID-keyed collection inside "data".
+                #
+                # Do not mistake metadata fields for actual items.
+                candidate_items = {
+                    key: value
+                    for key, value in data.items()
+                    if isinstance(value, dict)
+                    and isinstance(value.get("id"), str)
+                }
+
+                if candidate_items:
+                    raw_items = candidate_items
+                else:
+                    raise RuntimeError(
+                        "API returned a valid envelope but no 'items' "
+                        f"collection. data keys: {list(data.keys())[:30]}"
+                    )
+
+            # Normalize:
+            #   list -> list
+            #   dict keyed by item ID -> list(values)
+            if isinstance(raw_items, list):
+                item_list = raw_items
+
+            elif isinstance(raw_items, dict):
+                item_list = []
+
+                for key, value in raw_items.items():
+                    if isinstance(value, dict):
+                        item = dict(value)
+
+                        # Some keyed payloads omit id inside the value.
+                        if not item.get("id"):
+                            item["id"] = key
+
+                        item_list.append(item)
+
+            else:
+                raise RuntimeError(
+                    f"Unexpected 'items' type: "
+                    f"{type(raw_items).__name__}"
                 )
 
             normalized_items = []
 
-            for item in items:
+            for item in item_list:
                 if not isinstance(item, dict):
                     continue
-
-                normalized = dict(item)
 
                 item_id = (
                     item.get("id")
                     or item.get("_id")
                     or item.get("itemId")
                 )
+
+                if not item_id:
+                    continue
 
                 name = (
                     item.get("name")
@@ -126,6 +186,8 @@ def fetch_tarkov_data(game_mode="regular"):
                     or name
                 )
 
+                normalized = dict(item)
+
                 normalized["id"] = item_id
                 normalized["name"] = name
                 normalized["shortName"] = short_name
@@ -136,42 +198,47 @@ def fetch_tarkov_data(game_mode="regular"):
                     or item.get("updatedAt")
                 )
 
-                normalized["avg24hPrice"] = (
-                    item.get("avg24hPrice")
-                    if item.get("avg24hPrice") is not None
-                    else item.get("average24hPrice")
-                )
+                # These are the exact fields consumed later by
+                # push_market_data().
+                normalized["avg24hPrice"] = item.get("avg24hPrice")
+                normalized["lastLowPrice"] = item.get("lastLowPrice")
+                normalized["low24hPrice"] = item.get("low24hPrice")
+                normalized["high24hPrice"] = item.get("high24hPrice")
+                normalized["lastOfferCount"] = item.get("lastOfferCount")
 
-                normalized["lastLowPrice"] = (
-                    item.get("lastLowPrice")
-                    if item.get("lastLowPrice") is not None
-                    else item.get("lastPrice")
-                )
-
-                normalized["low24hPrice"] = (
-                    item.get("low24hPrice")
-                    if item.get("low24hPrice") is not None
-                    else item.get("min24hPrice")
-                )
-
-                normalized["high24hPrice"] = (
-                    item.get("high24hPrice")
-                    if item.get("high24hPrice") is not None
-                    else item.get("max24hPrice")
-                )
-
-                normalized["lastOfferCount"] = (
-                    item.get("lastOfferCount")
-                    if item.get("lastOfferCount") is not None
-                    else item.get("offerCount")
-                )
-
-                if item_id:
-                    normalized_items.append(normalized)
+                normalized_items.append(normalized)
 
             if not normalized_items:
                 raise RuntimeError(
-                    "API response contained no usable items with IDs."
+                    "API returned an item collection, but no usable items "
+                    "with IDs were found."
+                )
+
+            # Verify that the market fields used by the database pipeline
+            # actually exist before proceeding. This prevents silently
+            # writing a snapshot full of zero prices if the upstream schema
+            # changes in the future.
+            market_field_count = sum(
+                1
+                for item in normalized_items
+                if any(
+                    item.get(field) is not None
+                    for field in (
+                        "avg24hPrice",
+                        "lastLowPrice",
+                        "low24hPrice",
+                        "high24hPrice",
+                        "lastOfferCount",
+                    )
+                )
+            )
+
+            if market_field_count == 0:
+                sample_keys = sorted(normalized_items[0].keys())
+                raise RuntimeError(
+                    "Items were fetched successfully, but none of the "
+                    "expected market fields were found. "
+                    f"Sample keys: {sample_keys}"
                 )
 
             sample = normalized_items[0]
